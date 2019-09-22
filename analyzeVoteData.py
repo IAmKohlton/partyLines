@@ -4,8 +4,10 @@ import pprint
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import scipy
-import scipy.stats
+from scipy.stats import linregress
+from scipy.stats import chisquare
 from scipy.stats import binom
+from scipy.stats import fisher_exact
 import math
 
 def auAverageRebellions(voteData):
@@ -115,33 +117,10 @@ def distributionOfRebellions(voteData):
     return OrderedDict(sorted(numRebellions.items(), key=lambda t: t[0]))
 
 
-# p is a parameter for the geometric distribution and expected is a list of expected values
-def geoMeanSquareError(p, size, actual):
-    n = len(actual)
+def binomialMSE(prunedData, p, i):
+    pmf = binom.pmf(np.arange(0,i+1), i, p) * (np.sum(prunedData))
     totalSquareError = 0
-    for i in range(n):
-        actualValue = actual[i]
-        expectedValue = (1-p)**i * p * size # geometric distribution pdf times the size to get the expected number of that outcome in the samply
-        totalSquareError += (expectedValue - actualValue) ** 2
-    return totalSquareError / n
-
-
-def binomialMSE(rebelArray, n, p):
-    # chi square test will only work when the values are greater than 5 so we'll prune the data set a touch here
-    prunedData = []
-    greaterThan5 = True
-    i = 0
-    while greaterThan5:
-        theCount = rebelArray.count(i)
-        if theCount <= 5:
-            greaterThan5 = False
-        prunedData.append(theCount)
-        i += 1
-
-    pmf = binom.pmf(np.arange(0,i), n, p) * n
-
-    totalSquareError = 0
-    for actual, simulated in zip(prunedData, rebelArray):
+    for actual, simulated in zip(prunedData, pmf):
         totalSquareError += (actual - simulated) ** 2
 
     return totalSquareError
@@ -164,14 +143,43 @@ def fitBinomial(voteData):
 
     numRebellions.sort()
     
+
+    # chi square test will only work when the values are greater than 5 so we'll prune the data set a touch here
+    prunedData = []
+    greaterThan5 = True
+    i = 0
+    while greaterThan5:
+        theCount = numRebellions.count(i)
+        if theCount <= 5:
+            greaterThan5 = False
+        prunedData.append(theCount)
+        i += 1
+
+
     n = int(np.mean(numVoters))
     # idea is to check a bunch of different MSE's and pick the best
     allErrors = []
-    numTests = 10
-    for p in range(0,numTests):
-        error = binomialMSE(numRebellions, n, p/numTests)
+    numTests = 100000
+    for p in range(0,numTests+1):
+        error = binomialMSE(prunedData, p/(numTests), i)
+        allErrors.append((p/(numTests), error))
+    
+    sortedErrors = sorted(allErrors, key = lambda t: t[1])
+    pVals = [x[0] for x in sortedErrors[0:100]]
+    minVals = min(pVals)
+    maxVals = max(pVals)
+    print(minVals, maxVals)
+
+    allErrors = []
+    numTests = 100000
+    for p in np.arange(minVals,maxVals, (maxVals-minVals) /numTests ):
+        error = binomialMSE(prunedData, p, i)
         allErrors.append((p, error))
-    print(allErrors)
+    
+    sortedErrors = sorted(allErrors, key = lambda t: t[1])
+    pVals = [x[0] for x in sortedErrors[0:100]]
+    print(min(pVals), max(pVals))
+    return sortedErrors[0]
 
 
 # check if distribution of rebellions follows a geometric (exponential) distributionn
@@ -185,39 +193,25 @@ def checkIfBinomial(voteData):
             rebels += min(vote[party][0], vote[party][1])
         numRebellions.append(rebels)
 
-    # numRebellions = (np.random.geometric(p=0.1, size=len(numRebellions)) - 1).tolist()
-    size = len(numRebellions)
-    x = scipy.arange(size)
-    y = numRebellions
-    h = plt.hist(y, bins=range(math.floor(max(numRebellions))))
+    numRebellions.sort()
+    optimalP = fitBinomial(voteData)[0]
 
-    # plot a best fit exponential distribution vs the real data
-#     dist_name = "beta"
-#     dist = getattr(scipy.stats, dist_name)
-#     param = dist.fit(y)
-#     pdf_fitted = dist.pdf(x, *param[:-2], loc=param[-2], scale=param[-1]) * size
-#     plt.plot(pdf_fitted, label=dist_name)
-#     plt.xlim(math.floor(min(numRebellions)), math.floor(max(numRebellions)))
-#     plt.legend(loc='upper right')
-#     plt.show()
+    # prune the data in the same way as fitBinomial does it
+    prunedData = []
+    greaterThan5 = True
+    i = 0
+    while greaterThan5:
+        theCount = numRebellions.count(i)
+        if theCount <= 5:
+            greaterThan5 = False
+        prunedData.append(theCount)
+        i += 1
 
-    # chi square tests only work if the expected values are above 5
-    # we either combine categories together, or we disregard numbers below 5.
-    # for simplicity we'll do the latter
-
-
-    # now we have a best fit exponential distribution
-    # now we want to do a chi squared test to see whether it is that distribution
-    actual = np.array([  numRebellions.count(x) for x in range(np.shape(expected)[0])  ])
-    print(actual)
-    print(expected)
-    # we compare this to pdf_fitted
-    
-
-    # will need to do some data analysis so all expected values are above 5
-    testResult = scipy.stats.chisquare(actual, f_exp=expected)
-    print(testResult)
-    return testResult
+    pmf = binom.pmf(np.arange(0,i), i, optimalP) * np.sum(prunedData)
+    print(pmf)
+    print(prunedData)
+    result = chisquare(prunedData, f_exp=pmf)
+    print(result)
 
 
 # checks how often the actual result of the vote is different from when the party would vote as a whole
@@ -246,8 +240,93 @@ def rebellionsChangeResult(voteData):
 
     return (numChanges, numVotes, numChanges/numVotes) 
 
+def rebellionCorrelation(voteData):
+    parls = {}
+    # first we sort the votes by parliament
+    for vote in voteData:
+        if not vote["Parliament"] in parls:
+            parls[vote["Parliament"]] = []
+        parls[vote["Parliament"]].append(vote)
+
+    for parliament in parls:
+        rebsPerParty = {}
+        for party in parls[parliament][0]:
+            if party == "Parliament":
+                continue
+            if parls[parliament][0][party][0] + parls[parliament][0][party][1] > 5: # if the party has more than 5 reps then count them
+                rebsPerParty[party] = []
+
+        for vote in parls[parliament]:
+            for party in rebsPerParty:
+                try:
+                    rebels = min(vote[party][0], vote[party][1])
+                    total = vote[party][0] + vote[party][1]
+                except:
+                    rebels = 0
+                try:
+                    rebsPerParty[party].append(rebels/total)
+                except:
+                    rebsPerParty[party].append(0)
+
+        for partyA in rebsPerParty:
+            for partyB in rebsPerParty:
+                if partyA == partyB:
+                    continue
+                print(partyA, partyB)
+                print(linregress(rebsPerParty[partyA], rebsPerParty[partyB]))
+
+
+def binaryRebellionCorrelation(voteData):
+    parls = {}
+    # first we sort the votes by parliament
+    for vote in voteData:
+        if not vote["Parliament"] in parls:
+            parls[vote["Parliament"]] = []
+        parls[vote["Parliament"]].append(vote)
+
+    for parliament in parls:
+        rebsPerParty = {}
+        for party in parls[parliament][0]:
+            if party == "Parliament":
+                continue
+            if parls[parliament][0][party][0] + parls[parliament][0][party][1] > 5: # if the party has more than 5 reps then count them
+                rebsPerParty[party] = []
+
+        for vote in parls[parliament]:
+            for party in rebsPerParty:
+                try:
+                    rebels = min(vote[party][0], vote[party][1])
+                    rebels = 1 if rebels != 0 else 0
+                except:
+                    rebels = 0
+                try:
+                    rebsPerParty[party].append(rebels)
+                except:
+                    rebsPerParty[party].append(0)
+
+        for partyA in rebsPerParty:
+            for partyB in rebsPerParty:
+                if partyA == partyB:
+                    continue
+                print(partyA, partyB)
+                # print(rebsPerParty[partyA], rebsPerParty[partyB])
+                aRebels = rebsPerParty[partyA].count(0)
+                bRebels = rebsPerParty[partyB].count(0)
+
+                aNonRebels = rebsPerParty[partyA].count(1)
+                bNonRebels = rebsPerParty[partyB].count(1)
+
+                fisherMatrix = np.array([[aNonRebels,bNonRebels], [aRebels, bRebels]])
+                print(fisher_exact(fisherMatrix))
+
+                # do a linear regression and a fisher exact test at the same time
+                print(linregress(rebsPerParty[partyA], rebsPerParty[partyB]))
+                print()
+
+                
+
 def analyzeVote(voteData):
-    fitBinomial(voteData)
+    return binaryRebellionCorrelation(voteData)
 
 def analyzeVotes(paths):
     data = {}
@@ -264,7 +343,8 @@ def analyzeVotes(paths):
 
 if __name__ == "__main__":
     # analyzeAUVotes("auVotes.json")
-    analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json", "house" : "./voteData/houseVotes.json", "senate": "./voteData/senateVotes.json", "switzerland" : "./voteData/swissVotes.json", "uk" : "./voteData/ukVotes.json"})
+    analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json"})
+    # analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json", "house" : "./voteData/houseVotes.json", "senate": "./voteData/senateVotes.json", "switzerland" : "./voteData/swissVotes.json", "uk" : "./voteData/ukVotes.json"})
 #     for country in analysis:
 #         xList = []
 #         yList = []
