@@ -323,7 +323,19 @@ def binaryRebellionCorrelation(voteData):
                 print(linregress(rebsPerParty[partyA], rebsPerParty[partyB]))
                 print()
 
-                
+def collectPartyNames(voteData):
+    partyNames = []
+    for vote in voteData:
+        for party in vote:
+            if not party in partyNames:
+                partyNames.append(party)
+
+
+def partyCorrelation(voteData):
+    partyList = collectPartyNames(voteData)
+    voteTogetherMatrix = np.zeros((len(partyList), len(partyNames)))
+
+
 
 def analyzeVote(voteData):
     return binaryRebellionCorrelation(voteData)
