@@ -12,12 +12,16 @@ for i in range(38,43):
             candidateNames = f.readline().strip().split(",")[4:-3]
             candidateTotals = [0 for j in range(len(candidateNames))]
             for line in f:
-                splitLine = line.strip().split(",")[4:-3]
+                if i == 38 or i==39:
+                    splitLine = line.strip().split(",")[3:-3]
+                else:
+                    splitLine = line.strip().split(",")[4:-3]
+
                 for voteCount, j in zip(splitLine, range(len(splitLine))):
                     try:
                         candidateTotals[j] += int(voteCount)
                     except:
-                        continue # this line has some other non-vote number text on it
+                        pass # this line has some other non-vote number text on it
 
             winningCandidate = ""
             mostVotes = 0
@@ -27,8 +31,8 @@ for i in range(38,43):
                     winningCandidate = candidate
                     mostVotes = voteNum
             
-            winners[winningCandidate] = sorted(candidateTotals)
+            winners[winningCandidate] = sorted(candidateTotals, reverse=True)
 
-    writeName = join("../voteData/electionResults/", str(i))
+    writeName = join("../voteData/electionResults/", str(i)+".json")
     with open(writeName, "w") as f:
-        f.write(dumps(winners))
+        f.write(dumps(winners, sort_keys=True, indent=4))
