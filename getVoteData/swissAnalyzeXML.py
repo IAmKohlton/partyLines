@@ -50,11 +50,11 @@ def getVote(fileName):
     return decision
 
 def getAllVotes():
-    allFiles = listdir("./swissRawXML")
+    allFiles = listdir("../voteData/swissRawXML")
     allVotes = []
     i = 0
     for file in allFiles:
-        voteResult = getVote("./swissRawXML/%s" % file)
+        voteResult = getVote("../voteData/swissRawXML/%s" % file)
         if voteResult != None:
             allVotes.append(voteResult)
         if i % 500 == 0:
