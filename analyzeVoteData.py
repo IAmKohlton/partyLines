@@ -9,26 +9,27 @@ from scipy.stats import chisquare
 from scipy.stats import binom
 from scipy.stats import fisher_exact
 import math
+from tabulate import tabulate
 
-def auAverageRebellions(voteData):
-    rebels = np.ndarray((len(voteData)))
-    for i, person in enumerate(voteData):
-        rebellions = person["numRebellions"]
-        total = person["numVotesAttended"]
-        if total == 0:
-            rebels[i] = np.nan
-        else:
-            rebels[i] = rebellions/total
-    
-    return {"mean" : np.nanmean(rebels) * 100,
-            "variance" : np.nanvar(rebels) * 100,}
-            # "lower quantile" : np.nanquantile(rebels, 0.25) * 100,
-            # "upper quantile" : np.nanquantile(rebels, 0.75) * 100
-
-def analyzeAUVotes(url):
-    with open(url) as f:
-        voteData = json.loads(f.read())
-    print(auAverageRebellions(voteData))
+# def auAverageRebellions(voteData):
+#     rebels = np.ndarray((len(voteData)))
+#     for i, person in enumerate(voteData):
+#         rebellions = person["numRebellions"]
+#         total = person["numVotesAttended"]
+#         if total == 0:
+#             rebels[i] = np.nan
+#         else:
+#             rebels[i] = rebellions/total
+#     
+#     return {"mean" : np.nanmean(rebels) * 100,
+#             "variance" : np.nanvar(rebels) * 100,}
+#             # "lower quantile" : np.nanquantile(rebels, 0.25) * 100,
+#             # "upper quantile" : np.nanquantile(rebels, 0.75) * 100
+# 
+# def analyzeAUVotes(url):
+#     with open(url) as f:
+#         voteData = json.loads(f.read())
+#     print(auAverageRebellions(voteData))
 
 def averageRebellions(voteData):
     rebels = np.ndarray((len(voteData)))
@@ -96,6 +97,73 @@ def averageRebellionsPerParliament(voteData):
                         "variance" : np.nanvar(parliaments[parl]) * 100}
 
     return OrderedDict(sorted(result.items(), key=lambda t: t[0]))
+
+
+def regressOnRebPerParliament(voteData):
+    perParliament = averageRebellionsPerParliament(voteData)
+    parliamentNumbers = []
+    means = []
+    for key in perParliament:
+        parliamentNumbers.append(key)
+        means.append(perParliament[key]["mean"])
+    minParliament = min(parliamentNumbers)
+    parliamentNumbers = [x-minParliament for x in parliamentNumbers]
+    regress = linregress(parliamentNumbers, means)
+    plt.plot(parliamentNumbers, means, "o")
+    plt.plot(parliamentNumbers, regress[1]+regress[0]*np.array(parliamentNumbers), "r")
+    plt.show()
+    return regress
+
+def rebPerPartyAndParliament(voteData):
+    parliaments = {}
+    for vote in voteData:
+        if not vote["Parliament"] in parliaments:
+            parliaments[vote["Parliament"]] = {}
+        for party in vote:
+            if party == "Parliament":
+                continue
+            if not party in parliaments[vote["Parliament"]]:
+                parliaments[vote["Parliament"]][party] = []
+
+            partyVotes = vote[party][0] + vote[party][1]
+            rebellions = min(vote[party][0], vote[party][1])
+            parliaments[vote["Parliament"]][party].append((partyVotes, rebellions))
+    totals = {}
+    for parlNumber in parliaments:
+        totals[parlNumber] = {}
+        for party in parliaments[parlNumber]:
+            totalVotes = 0
+            totalRebellions = 0
+            for vote in parliaments[parlNumber][party]:
+                totalVotes += vote[0]
+                totalRebellions += vote[1]
+            if totalVotes != 0:
+                totals[parlNumber][party] = totalRebellions/totalVotes
+
+    # convert to tabulate-able table
+    partySet = []
+    parlSet = []
+    for parlNumber in totals:
+        parlSet.append(parlNumber)
+        for party in totals[parlNumber]:
+            if not party in partySet:
+                partySet.append(party)
+    parlSet.sort()
+    partySet.sort()
+    outputTable = []
+    for parl in parlSet:
+        row = [parl]
+        for party in partySet:
+            if party in totals[parl]:
+                row.append(totals[parl][party]*100)
+            else:
+                row.append(-1)
+        outputTable.append(row)
+    partySet.insert(0,"Time")
+    print(tabulate(outputTable, headers=partySet))
+    outputTable.insert(0, partySet)
+    return outputTable
+
 
 def distributionOfRebellions(voteData):
     numRebellions = {}
@@ -336,9 +404,17 @@ def partyCorrelation(voteData):
     voteTogetherMatrix = np.zeros((len(partyList), len(partyNames)))
 
 
+def savePartyParliamentToFile(path, saveFile):
+    with open(path, "r") as f:
+        outputTable = rebPerPartyAndParliament(json.loads(f.read()))
+    with open(saveFile, "w") as f:
+        for line in outputTable:
+            line = ["\""+str(x)+"\"" for x in line]
+            f.write(",".join(line)+"\n")
+
 
 def analyzeVote(voteData):
-    return binaryRebellionCorrelation(voteData)
+    return rebPerPartyAndParliament(voteData)
 
 def analyzeVotes(paths):
     data = {}
@@ -354,9 +430,12 @@ def analyzeVotes(paths):
 
 
 if __name__ == "__main__":
-    # analyzeAUVotes("auVotes.json")
-    analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json"})
-    # analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json", "house" : "./voteData/houseVotes.json", "senate": "./voteData/senateVotes.json", "switzerland" : "./voteData/swissVotes.json", "uk" : "./voteData/ukVotes.json"})
+    savePartyParliamentToFile("./voteData/canadaVotes.json", "./canadaOverTime.csv")
+    savePartyParliamentToFile("./voteData/houseVotes.json", "./usOverTime.csv")
+    savePartyParliamentToFile("./voteData/swissVotes.json", "./swissOverTime.csv")
+
+    # analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json"})
+    analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json", "US" : "./voteData/houseVotes.json", "switzerland" : "./voteData/swissVotes.json"})
 #     for country in analysis:
 #         xList = []
 #         yList = []

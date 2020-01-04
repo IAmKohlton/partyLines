@@ -1,4 +1,5 @@
 from tabulate import tabulate
+from typing import Callable, Iterator, Union, Optional, List
 import sys
 import io
 import gzip
@@ -66,7 +67,7 @@ class Representative(object):
     the number of votes they've been in (int), and what votes those were (list of 3-tuples (Vote Object, how they voted 1/0, party they represented))
     the number of votes where they rebelled (int), and what votes those were (same type as above)
     """
-    def __init__(self, name, constituency, province):
+    def __init__(self, name, constituency, province, country):
         """
         Specify a representative based on their:
             name: str
@@ -75,6 +76,7 @@ class Representative(object):
         """
         self.name = name
         self.constituency = constituency
+        self.country = country
 
         self.province = province
         self.sessionsInGov = []
@@ -165,16 +167,16 @@ def analyzeVotes(voteDict):
     return allParties
 
 
-def retrieveFromFolder():
+def retrieveFromFolder(path: str, country: str) -> List[Representative]:
     """ retreive all of the relevant xml files.
         Generate all the relevant Vote objects as well as the relevant Representative objects
         Return a dictionary with keys of the representative's name, and values of Representative objects
     """
     # get the full list of file names that contain the relevante xml files
-    fileNames = os.listdir("../voteData/canadaRawXML")
+    fileNames = os.listdir(path)
     cleanFileNames = []
     for file in fileNames: 
-        fullFileNames = os.path.join("../voteData/canadaRawXML", file)
+        fullFileNames = os.path.join(path, file)
         cleanFileNames.append(fullFileNames)
 
     allReps = {}
@@ -196,7 +198,7 @@ def retrieveFromFolder():
                 currentRepName = voterRecord["Name"]
                 if not currentRepName in allReps:
                     # if the representative isn't yet in the all reps dictionary, create it and then add it to the dictionary
-                    newRep = Representative(voterRecord["Name"], voterRecord["ConstituencyName"], voterRecord["Province"])
+                    newRep = Representative(voterRecord["Name"], voterRecord["ConstituencyName"], voterRecord["Province"], country)
                     allReps[currentRepName] = newRep
 
                 rep = allReps[currentRepName]
@@ -205,27 +207,19 @@ def retrieveFromFolder():
     
 
 # calculate allReps in some way. Either:
-#   -sc reads the xml files and saves a compressed pickle file of the representative dictionary and calculate whatever is in the bottom part of the script
 #   -s reads the xml files and saves a compressed pickle file of the representative dictionary
-#   -c reads the xml file and calculate whatever is in the bottom part of the script without saving
 #   -o open the saved xml files and calculate what's in the bottom part of the sctipt
 if __name__ == "__main__":
-    if "-sc" in sys.argv or "-cs" in sys.argv:
-        allReps = retrieveFromFolder()
-        with open("data.pickle", "wb") as f:
-            pickle.dump(allReps, f)
-    elif "-s" in sys.argv:
-        allReps = retrieveFromFolder()
-        with open("data.pickle", "wb") as f:
+    if "-s" in sys.argv:
+        allReps = retrieveFromFolder(sys.argv[2], sys.argv[3])
+        with open(sys.argv[4], "wb") as f:
             pickle.dump(allReps, f)
         sys.exit(0)
-    elif "-c" in sys.argv:
-        allReps = retrieveFromFolder()
     elif "-o" in sys.argv:
-        with open("data.pickle", "rb") as f:
+        with open(sys.argv[2], "rb") as f:
             allReps = pickle.load(f)
     else:
-        print("must specify what action should be taken:\n\t-s (save raw text to compressed file)\n\t-c (open raw text and compute)\n\t-o (open data from compressed file and compute),\n\t-sc (both save to compressed file and compute)")
+        print("must specify what action should be taken:\n\t-s (save raw text to compressed file)\n\t-o (open data from compressed file and compute)")
         sys.exit(1)
 
 
@@ -354,15 +348,14 @@ def regressWithinParty(termSummary):
             print()
 
 
-# result = rebellionsByTermAndParty(allReps)
-# regressWithinParty(result)
-# tableVersion = []
-# for entry in sorted(result.keys()):
-#     data = result[entry]
-#     tableVersion.append([entry[0], entry[1], data[0], data[1], data[2]])
-# tableVersion = sorted(tableVersion, key=lambda x:x[4])
-# tableVersion = sorted(tableVersion, key=lambda x:x[1])
-# print(tabulate(tableVersion))
+result = rebellionsByTermAndParty(allReps)
+regressWithinParty(result)
+tableVersion = []
+for entry in sorted(result.keys()):
+    data = result[entry]
+    tableVersion.append([entry[0], entry[1], data[0], data[1], data[2]])
+tableVersion = sorted(tableVersion, key=lambda x:x[4])
+print(tabulate(tableVersion))
 
 
 def rebellionsByElectionResult(allReps):

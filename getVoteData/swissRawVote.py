@@ -1,5 +1,7 @@
 import sys
 import io
+from multiprocessing.dummy import Pool as ThreadPool
+
 try:
     import pycurl
 except Exception as e:
@@ -49,21 +51,27 @@ def connectToSite(url):
 # parliament 49 has 20 sessions
 # parliament 48 has 20 sessions
 
-def getAllInfo():
-    for i in range(1993,9987):
-        print("Connecting to vote number", i)
-        url = "https://ws.parlament.ch/odata.svc/Voting?$filter=(Language%20eq%20%27EN%27)%20and%20((Decision%20eq%201)%20or%20(Decision%20eq%202)%20or%20(Decision%20eq%203)%20or%20(Decision%20eq%205)%20or%20(Decision%20eq%206)%20or%20(Decision%20eq%207))%20and%20((IdVote%20eq%20"
-        url += str(i)
-        url += "))&$orderby=LastName%2CFirstName" 
-        rawResponse = connectToSite(url)
-        response = rawResponse[0].decode("utf8")
-        error = rawResponse[1]
-        if error:
-            with open("./swissRawXML/errorPages", "a") as f:
-                f.write(url)
-        else:
-            with open("./swissRawXML/vote"+ str(i)+".xml", "w") as f:
-                f.write(response) 
+def getAllInfo(i):
+    print("Connecting to vote number", i)
+    url = "https://ws.parlament.ch/odata.svc/Voting?$filter=(Language%20eq%20%27EN%27)%20and%20((Decision%20eq%201)%20or%20(Decision%20eq%202)%20or%20(Decision%20eq%203)%20or%20(Decision%20eq%205)%20or%20(Decision%20eq%206)%20or%20(Decision%20eq%207))%20and%20((IdVote%20eq%20"
+    url += str(i)
+    url += "))&$orderby=LastName%2CFirstName" 
+    rawResponse = connectToSite(url)
+    response = rawResponse[0].decode("utf8")
+    error = rawResponse[1]
+    if error:
+        with open("../voteData/swissRawXML/errorPages", "a") as f:
+            f.write(url)
+    else:
+        with open("../voteData/swissRawXML/vote"+ str(i)+".xml", "w") as f:
+            f.write(response) 
+
+
+def metaGetAllInfo():
+    pool = ThreadPool(16)
+    pool.map(getAllInfo, range(1,24000))
+
+
 
 if __name__ == "__main__":
-    getAllInfo()
+    metaGetAllInfo()
