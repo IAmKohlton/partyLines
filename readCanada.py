@@ -1,5 +1,14 @@
+try:
+    import xmltodict
+except Exception as e:
+    print("xmltodict not installed, exiting")
+    sys.exit(1)
+
 from typing import List
+from os import listdir
+from os.path import join
 from Representative import Representative
+from Vote import Vote
 def analyzeVotes(voteDict):
     """ takes in the processed xml gotten from the vote file
         returns a dictionary with keys of parties, and values of 2-tuple where first value is number of yea votes, and second value is number of nay votes
@@ -27,10 +36,10 @@ def readCanada(path: str, country: str) -> List[Representative]:
         Return a dictionary with keys of the representative's name, and values of Representative objects
     """
     # get the full list of file names that contain the relevante xml files
-    fileNames = os.listdir(path)
+    fileNames = listdir(path)
     cleanFileNames = []
     for file in fileNames: 
-        fullFileNames = os.path.join(path, file)
+        fullFileNames = join(path, file)
         cleanFileNames.append(fullFileNames)
 
     allReps = {}
