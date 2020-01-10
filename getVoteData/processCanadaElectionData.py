@@ -34,9 +34,13 @@ for i in range(38,43):
                 if mostVotes < voteNum:
                     winningCandidate = candidate
                     mostVotes = voteNum
+<<<<<<< HEAD
             if winningCandidate == "":
                 print(filePath)
 
+=======
+            
+>>>>>>> 7a357e54d86551ae0597a3422d6759dfd8cf0b48
             winners[winningCandidate] = sorted(candidateTotals, reverse=True)
 
     writeName = join("../voteData/electionResults/", str(i)+".json")
