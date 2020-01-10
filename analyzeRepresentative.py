@@ -104,6 +104,32 @@ def repsByNumTimesInGov(allReps):
         percentRebellions[key] = average
     return percentRebellions
 
+def rebellionsPerPartyPerSession(allReps):
+    """ Finds how much a particular party votes against party lines in a particular year
+        Similar thing done in other file, but it is repeated here for the sake of compatibility
+    """
+    parties = {} # will hold parties as keys, and a dictionary as a value
+                 # the nested dictionary will have keys of years and values of tuples of (# rebellions in year, # votes in year)
+    for repName in allReps:
+        rep = allReps[repName]
+        for vote in rep.votes:
+            voteOb, yeaNay, party = vote
+            year = voteOb.voteID[0]
+            # initialize parties
+            if not party in parties:
+                parties[party] = {}
+            # initialize a given year for a party
+            if not year in parties[party]:
+                parties[party][year] = [0,0]
+
+            parties[party][year][1] += 1
+            if rep.isRebellion(vote):
+                parties[party][year][0] += 1
+    return parties
+
+print(rebellionsPerPartyPerSession(allReps))
+sys.exit()
+
 def rebellionsByTermNumber(allReps):
     """ Analyze behaviour of nth term representatives.
         looks at how many rebellions/votes a representative had in their first term, second term and so on
@@ -181,6 +207,11 @@ def rebellionsByTermAndParty(allReps):
         termSummary[entry] = (totalVotes, totalRebellions, totalRebellions/totalVotes*100)
     return termSummary 
 
+def termPartyAccountForYear(allReps):
+    """ Does same thing as rebellionsByTermAndParty() but accounts for the parties voting behaviour at the time
+    """
+    return None
+
 def regressWithinParty(termSummary):
     """ Take in termSummary from above method.
         Check if the number of terms a representative is in parliament for affects the amount they rebel
@@ -212,14 +243,14 @@ def regressWithinParty(termSummary):
             print()
 
 
-result = rebellionsByTermAndParty(allReps)
-regressWithinParty(result)
-tableVersion = []
-for entry in sorted(result.keys()):
-    data = result[entry]
-    tableVersion.append([entry[0], entry[1], data[0], data[1], data[2]])
-tableVersion = sorted(tableVersion, key=lambda x:x[4])
-print(tabulate(tableVersion))
+# result = rebellionsByTermAndParty(allReps)
+# regressWithinParty(result)
+# tableVersion = []
+# for entry in sorted(result.keys()):
+#     data = result[entry]
+#     tableVersion.append([entry[0], entry[1], data[0], data[1], data[2]])
+# tableVersion = sorted(tableVersion, key=lambda x:x[4])
+# print(tabulate(tableVersion))
 
 
 def rebellionsByElectionResult(allReps):
