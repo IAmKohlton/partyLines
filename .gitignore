@@ -2,4 +2,3 @@ voteData/
 __pycache__/
 *.pyc
 *.sw*
-*.pickle
