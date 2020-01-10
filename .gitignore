@@ -1,5 +1,5 @@
 voteData/
 __pycache__/
-.pyc
+*.pyc
 *.sw*
-.pickle
+*.pickle
