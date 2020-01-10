@@ -127,9 +127,6 @@ def rebellionsPerPartyPerSession(allReps):
                 parties[party][year][0] += 1
     return parties
 
-print(rebellionsPerPartyPerSession(allReps))
-sys.exit()
-
 def rebellionsByTermNumber(allReps):
     """ Analyze behaviour of nth term representatives.
         looks at how many rebellions/votes a representative had in their first term, second term and so on
