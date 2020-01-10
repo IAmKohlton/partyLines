@@ -1,19 +1,18 @@
 from tabulate import tabulate
-from typing import Callable, Iterator, Union, Optional, List
+from typing import List
 import sys
-import io
-import gzip
 import json
 import os
 import pickle
+import numpy as np
+import matplotlib.pyplot as plt
 from scipy.stats import linregress
-from functools import total_ordering
-from random import random
-try:
-    import pycurl
-except Exception as e:
-    print("pycurl not installed, exiting")
-    sys.exit(1)
+
+from Vote import Vote
+from Representative import Representative
+from readCanada import readCanada
+from readUS import readUS
+from readSwitzerland import readSwitzerland
 
 try:
     import xmltodict
@@ -21,248 +20,99 @@ except Exception as e:
     print("xmltodict not installed, exiting")
     sys.exit(1)
 
-
-@total_ordering
-class Vote(object):
-    """
-    A single vote in parliament.
-    Contains self.voteID which is a tuple that identifies parliament number, session number, and vote number.
-        This tuple has total ordering meaning that it can be compared and sorted easily.
-    Contains self.voteResult which is a dictionary that stores the summary result of the vote.
-        This dictionary has keys of the party names, and has values of a two entry list where
-        the first entry is how many representatives from that party voted yes,
-        and the second entry is how many representatives voted no.
-    """
-    def __init__(self,voteID, result):
-        """
-        Specify a voteID, and result for a vote where:
-            voteID = (parliament #, session #, vote #)
-            voteResult = {party: (num yes, num no), ...}
-        """
-        self.voteID = voteID
-        self.voteResult = result
-
-    def __str__(self):
-        """ string representation of the vote. Only represents the vote identifier, not the contents
-        """
-        return "Parliament: %d, Session: %d, Vote: %d" % self.voteID
-
-    def __lt__(self, other):
-        """ takes in another Vote object "other" and says whether this is strictly less than "other". This is based on the vote identifier
-        """
-        return self.voteID < other.voteID
-
-    def __eq__(self, other):
-        """ takes in another Vote object "other" and says whether this is the same as "other". This is based on the vote identifier
-        """
-        return self.voteID == other.voteID
-
-class Representative(object):
-    """
-    A single representative in parliament.
-    Contains their name (str),
-    their riding/constituency (str),
-    their province (str),
-    the number of parliaments they've been in government (int), and which parliaments those were (list)
-    the number of votes they've been in (int), and what votes those were (list of 3-tuples (Vote Object, how they voted 1/0, party they represented))
-    the number of votes where they rebelled (int), and what votes those were (same type as above)
-    """
-    def __init__(self, name, constituency, province, country):
-        """
-        Specify a representative based on their:
-            name: str
-            constituency: str
-            province: str
-        """
-        self.name = name
-        self.constituency = constituency
-        self.country = country
-
-        self.province = province
-        self.sessionsInGov = []
-        self.numSessionsInGov = 0
-
-        # self.votes is a list of (vote object, rep's vote (1 for yea, 0 for nay), party )
-        self.votes = []
-        self.numVotes = 0
-        self.numRebellions = 0
-        self.rebellionVotes = []
-
-    def __str__(self):
-        """ String representation of the representative. Represents their basic information, and what votes they rebelled in
-        """
-        outputString =  "name: %s, consituency: %s, province: %s, number of votes: %d, number of rebellions: %d" % (self.name, self.constituency, self.province, self.numVotes, self.numRebellions) + "\n"
-        outputString += "Rebellion Votes:\n"
-        for vote in sorted(self.rebellionVotes):
-            outputString += "\t" + str(vote) + "\n"
-        return outputString
-
-
-    def voteString(self):
-        """ String representation of every vote they've participated in
-        """
-        outputString = ""
-        for v in self.votes:
-            outputString += ("vote summary: %s, representative vote: %d\n" % v)
-        return outputString
-
-    def __eq__(self, otherRep):
-        """ checks whether two representatives names are equal
-        """
-        return self.name == otherRep.name
-
-    def isRebellion(self, voteTuple):
-        """Takes in a vote 3-tuple from self.voteList and checks whether it was a rebellion
-        """
-        partyVotedYea = 0
-        party = voteTuple[2]
-        # did the party vote yes
-        if voteTuple[0].voteResult[party][0] < voteTuple[0].voteResult[party][1]:
-            partyVotedYea = 1
-        # check if whether the party voted yea is equal to whether the representative voted yea
-        if partyVotedYea == voteTuple[1]:
-            return True
-        else:
-            return False
-
-    def addVote(self, vote, yeaNay, party):
-        """ Takes in a Vote object, whether the representative voted yea (1 or 0), and what party the representative was in at the time
-            Adds it to the vote list, and if it was a rebellion vote it adds it to the the rebellion list
-        """
-        voteTuple = (vote, yeaNay, party)
-        # append to the big vote list
-        self.votes.append(voteTuple)
-        self.numVotes += 1
-        # if we haven't seen this session they had in government yet then add it
-        if (not vote.voteID[0] in self.sessionsInGov):
-            self.sessionsInGov.append(vote.voteID[0])
-            self.numSessionsInGov += 1
-
-        # if the vote is a rebellion vote
-        if self.isRebellion(voteTuple):
-            self.numRebellions += 1
-            self.rebellionVotes.append(vote)
-
-
-
-def analyzeVotes(voteDict):
-    """ takes in the processed xml gotten from the vote file
-        returns a dictionary with keys of parties, and values of 2-tuple where first value is number of yea votes, and second value is number of nay votes
-    """
-    allParties = {}
-    for participant in voteDict:
-        # iterate over every representative in the xml, and if record how they each voted
-        party = participant["PartyName"]
-        votedYes = participant["Yea"]
-        votedNo = participant["Nay"]
-        if not party in allParties:
-            allParties[party] = [0,0]
-
-        if votedYes == "1":
-            yesVotes = allParties[party][0]
-            allParties[party][0] = yesVotes + 1
-        elif votedNo == "1":
-            noVotes = allParties[party][1]
-            allParties[party][1] = noVotes + 1
-    return allParties
-
-
 def retrieveFromFolder(path: str, country: str) -> List[Representative]:
-    """ retreive all of the relevant xml files.
-        Generate all the relevant Vote objects as well as the relevant Representative objects
-        Return a dictionary with keys of the representative's name, and values of Representative objects
+    """ retreive and process all of the relevant xml files.
+        Generate all the relevant Vote, and Representative objects
+        Return a dictionary with keys of the representative's name (or unique tag), and values of Representative objects
     """
-    # get the full list of file names that contain the relevante xml files
-    fileNames = os.listdir(path)
-    cleanFileNames = []
-    for file in fileNames: 
-        fullFileNames = os.path.join(path, file)
-        cleanFileNames.append(fullFileNames)
-
-    allReps = {}
-    for voteFile in cleanFileNames:
-        with open(voteFile) as f:
-            # open the file, and parse the xml in it
-            print(voteFile)
-            resultDict = xmltodict.parse(f.read())
-            allVotesList = resultDict["List"]["VoteParticipant"]
-            voteMetaData = voteFile.split("/")[-1][:-4].split("_") # gets the meta data of the vote from the file name
-            voteMetaData = (int(voteMetaData[0]), int(voteMetaData[1]), int(voteMetaData[2]))
-            
-            # turn the xml into a summarized dictionary
-            voteSummary = analyzeVotes(allVotesList)
-            voteOb = Vote(voteMetaData, voteSummary)
-
-            # for every representative in the vote, add the vote object to their list of votes
-            for voterRecord in allVotesList:
-                currentRepName = voterRecord["Name"]
-                if not currentRepName in allReps:
-                    # if the representative isn't yet in the all reps dictionary, create it and then add it to the dictionary
-                    newRep = Representative(voterRecord["Name"], voterRecord["ConstituencyName"], voterRecord["Province"], country)
-                    allReps[currentRepName] = newRep
-
-                rep = allReps[currentRepName]
-                rep.addVote(voteOb, int(voterRecord["Yea"]), voterRecord["PartyName"])
-    return allReps
+    if country.lower() == "switzerland" or country.lower() == "swiss":
+        return readSwitzerland(path, str)
+    elif country.lower() == "usa" or country.lower() == "us":
+        return readUS(path, str)
+    elif country.lower() == "canada":
+        return readCanada(path, str)
+    else:
+        print("please set the second argument to be one of 'switzerland', 'canada', 'USA'")
+        sys.exit(1)
     
 
-# calculate allReps in some way. Either:
+# calculate or store allReps in some way. Either:
 #   -s reads the xml files and saves a compressed pickle file of the representative dictionary
+#      the first argument should be "-s"
+#      the second argument should be the path of the folder containing the relevant XML files
+#      the third argument should be the name of the country being analyzed
+#      the fourth argument should be the name of the pickle file the data is stored in
 #   -o open the saved xml files and calculate what's in the bottom part of the sctipt
+#      the first argument should be "-o"
+#      the second argument should be the file name of the pickle file we want to open and analyze
+#      Note: PICKLE IS NOT SECURE. DO NOT USE A PICKLE FILE CREATED BY ANYTHING BUT THIS PROGRAM.
+
 if __name__ == "__main__":
-    if "-s" in sys.argv:
+    if "-s" == sys.argv[1]:
         allReps = retrieveFromFolder(sys.argv[2], sys.argv[3])
         with open(sys.argv[4], "wb") as f:
             pickle.dump(allReps, f)
         sys.exit(0)
-    elif "-o" in sys.argv:
+    elif "-o" == sys.argv[1]:
         with open(sys.argv[2], "rb") as f:
             allReps = pickle.load(f)
     else:
-        print("must specify what action should be taken:\n\t-s (save raw text to compressed file)\n\t-o (open data from compressed file and compute)")
+        print("must specify what action should be taken:\n\t" +
+                "-s (save raw text to compressed file)\n\t" + 
+                "-o (open data from compressed file and compute)")
         sys.exit(1)
 
 
 def representativesByNumberOfRebellions(allReps):
+    """ Categorize representatives based on the number of times they've voted against party lines
+        return a dictionary where the keys are an integer (number of rebellions) and the values are representatives
+    """
     repsByNumRebellions = {}
     for rep in allReps:
         party = allReps[rep].party
-        totalVotes = len(allReps[rep].votes)
-        numRebellions = 0
-        for vote in allReps[rep].votes:
-            partyVotedYea = 0
-            if vote[0].voteResult[party][0] < vote[0].voteResult[party][1]:
-                partyVotedYea = 1
-            if partyVotedYea == vote[1]:
-                numRebellions += 1
+        totalVotes = allReps[rep].numVotes
+        numRebellions = allReps[rep].numRebellions
 
         if not numRebellions in repsByNumRebellions:
             repsByNumRebellions[numRebellions] = []
-        
         repsByNumRebellions[numRebellions].append(rep)
 
     return repsByNumRebellions
 
 def repsByNumTimesInGov(allReps):
+    """ Categorize representatives based on number of terms they've been in government and take the average rebellion rate of each category
+        return a dictionary with keys as number of terms (integer) and values as the average rebellion rate of representatives serving that number of terms
+    """
+    # categorize representatives by how many terms they've served
     timesInGov = {}
     for rep in allReps:
-        if not allReps[rep].numSessionsInGov in timesInGov:
-            timesInGov[allReps[rep].numSessionsInGov] = []
-        timesInGov[allReps[rep].numSessionsInGov].append(allReps[rep])
+        numTerms = allReps[rep].numSessionsInGov
+        if not numTerms in timesInGov:
+            timesInGov[numTerms] = []
+        timesInGov[numTerms].append(allReps[rep])
 
-    # this works okay but I want to change it to keep track of whether a representative votes more or less as their seat gets safer
-
+    # take average
     # initialize dict with same keys as timesInGov
     percentRebellions = {}
     for key in sorted(list(timesInGov.keys())):
-        runningTotal = 0
+        totalRebellions = 0
+        totalVotes = 0
         for rep in timesInGov[key]:
-            runningTotal += rep.numRebellions / rep.numVotes
-        average = runningTotal / len(timesInGov[key])
-        print(key, average)
+            totalRebellions += rep.numRebellions
+            totalVotes += rep.numRebellions
+        average = totalRebellions / totalVotes
+        percentRebellions[key] = average
+    return percentRebellions
 
 def rebellionsByTermNumber(allReps):
-    terms = [] # list of lists of (total number of votes, total number of rebellions)
+    """ Analyze behaviour of nth term representatives.
+        looks at how many rebellions/votes a representative had in their first term, second term and so on
+        group the behaviour of all representatives in their first term, similarly group the second term etc.
+        returns a list saying how often nth term representatives vote against party lines
+    """
+
+    # first entry of terms stores behaviour of first term representatives, second entry stores second term behaviour etc
+    terms = []
     for rep in allReps:
         rebsInTerm = {} # will be filled with keys of parliament numbers and values of tuples (number of votes in term, number of rebellions in term)
         for vote in allReps[rep].votes:
@@ -275,10 +125,11 @@ def rebellionsByTermNumber(allReps):
 
         while len(terms) < len(rebsInTerm):             
             terms.append([])
+        # add this representatives behaviour in their nth term to the appropriate list in 'terms'
         for par, sessInGov in zip(sorted(rebsInTerm.keys()), range(len(rebsInTerm))):
             terms[sessInGov].append(rebsInTerm[par])
 
-    # now summarize terms
+    # now summarize terms in terms of total percentages
     termSummary = []
     for entry in terms:
         totalVotes = 0
@@ -290,6 +141,8 @@ def rebellionsByTermNumber(allReps):
     return termSummary
 
 def rebellionsByTermAndParty(allReps):
+    """ Same as rebellionsByTermNumber but also breaks it down by party
+    """
     partyTerm = {} # dictionary with keys of (term number, party) and values of (total number of votes, total number of rebellions)
     for rep in allReps:
         rebsInTerm = {} # will be filled with keys of (parliament number, party) values of [number of votes in term, number of rebellions in term]
@@ -329,6 +182,11 @@ def rebellionsByTermAndParty(allReps):
     return termSummary 
 
 def regressWithinParty(termSummary):
+    """ Take in termSummary from above method.
+        Check if the number of terms a representative is in parliament for affects the amount they rebel
+    """
+    # sort by party. every key in partyList will be a party 
+    # and the values will be how representatives in the party behaved in their first term, second term etc
     partyList = {}
     for term, party in termSummary:
         if not party in partyList:
@@ -341,10 +199,16 @@ def regressWithinParty(termSummary):
         for vote in partyList[party]:
             termNum.append(vote[0])
             rebellionPercent.append(vote[1])
-
+        
+        # see if representative behaviour over time is linear
         if(len(partyList[party]) > 2):
             print(party)
-            print(linregress(termNum, rebellionPercent))
+            regress = linregress(termNum, rebellionPercent)
+            print(regress)
+            plt.plot(termNum, rebellionPercent, "o")
+            plt.plot(termNum, regress[1] + regress[0] * np.array(termNum), "r")
+            plt.show()
+
             print()
 
 
@@ -359,12 +223,21 @@ print(tabulate(tableVersion))
 
 
 def rebellionsByElectionResult(allReps):
+    """ Only use for Canada
+        See if election result coorelates with individual representative behaviour
+    """
+
     allElectionResults = {}
     for i in range(38,43):
-        fileName = os.path.join("../voteData/electionResults/", str(i)+".json")
+        fileName = os.path.join("./voteData/electionResults/", str(i)+".json")
+        # this file contains a dictionary for a particular election
+        # the keys of the dict are names of the winners, and values are the number of votes each person got in decreasing order
+        # only contains name of elected representative
         with open(fileName) as f:
             allElectionResults[i] = (json.loads(f.read()))
 
+    # will contain keys of (representative name, parliament number)
+    # and values of (total votes in riding, and vote percent of this representative)
     electionReps = {}
     for parNum in allElectionResults:
         elec = allElectionResults[parNum]
@@ -374,17 +247,34 @@ def rebellionsByElectionResult(allReps):
                 voteTotal += voteForCandidate
             electionReps[(rep,parNum)] = voteTotal, elec[rep][0]/voteTotal
 
+    # this just takes the "Mr." and "Mrs." out of names
     modifiedAllReps = {}
     for rep in allReps:
-        newKey = " ".join(rep.split()[1:])
+        newKey = " ".join(rep.split()[1:])         
         modifiedAllReps[newKey] = allReps[rep]
 
+    # repSet = set(modifiedAllReps.keys())
+    # electSet = set([x for x,y in electionReps])
+    # print(len(repSet))
+    # print(len(list(repSet-electSet)))
+    # print(sorted(list(repSet-electSet)))
+    # print()
+    # print()
+    # print(sorted(list(electSet-repSet)))
 
-    print(sorted(modifiedAllReps.keys()))
-
+    # so there is a reasonable sized problem here
+    # I'm getting names from two different locations and kinda hoping that they're the same
+    # The problem with this is that in many cases people write their names differntly e.g. Alex vs Alexander
+    # This problem is hightened by the fact that one system deals with accents well while the other one doesn't
+    # The solution for the time being is to ignore any representative whose name appears in one list but not the other
+    # This work around ignores about 10% of the data
+    # A very big TODO is to fix this, but that's a task for another day
     rebellionInTerm = {}
     for rep,parNum in electionReps:
-        repRecord = modifiedAllReps[rep] # i have a feeling that something is going to break here
+        try:
+            repRecord = modifiedAllReps[rep] # i have a feeling that something is going to break here
+        except:
+            continue
         numVotes = 0
         numRebellions = 0
         for vote in repRecord.votes:
@@ -392,16 +282,21 @@ def rebellionsByElectionResult(allReps):
                 if repRecord.isRebellion(vote):
                     numRebellions += 1
                 numVotes += 1
-
-        rebellionInTerm[(rep,parNum)] = numRebellions/numVotes*100
+        if numVotes != 0: # speakers of the house don't vote
+            rebellionInTerm[(rep,parNum)] = numRebellions/numVotes*100
 
     # now we want to try correlate the value in electionReps with the values in rebellionInTerm
     electionRepsList = []
     rebellionInTermList = []
-    for key in electionReps:
-        electionRepsList.append(electionReps[key])
-        rebellionInTermList.append(rebellionInTerm[key])
+    for name, parNum in rebellionInTerm:
+        electionRepsList.append(electionReps[(name,parNum)][1])
+        rebellionInTermList.append(rebellionInTerm[(name,parNum)])
 
-    print(linregress(electionRepsList, rebellionInTermList))
+    regress = linregress(electionRepsList, rebellionInTermList)
+    print(regress)
+    plt.plot(electionRepsList, rebellionInTermList, "o")
+    plt.plot(electionRepsList, regress[1] + regress[0] * np.array(electionRepsList), "r")
+    plt.show()
             
 # rebellionsByElectionResult(allReps)
+

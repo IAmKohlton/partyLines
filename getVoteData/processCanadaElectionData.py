@@ -9,7 +9,11 @@ for i in range(38,43):
     for fileName in listdir(dirPath):
         filePath = join(dirPath, fileName)
         with open(filePath, "r", encoding="iso-8859-15") as f:
-            candidateNames = f.readline().strip().split(",")[4:-3]
+            if i == 38 or i == 39:
+                candidateNames = f.readline().strip().split(",")[3:-3]
+            else:
+                candidateNames = f.readline().strip().split(",")[4:-3]
+
             candidateTotals = [0 for j in range(len(candidateNames))]
             for line in f:
                 if i == 38 or i==39:
@@ -30,7 +34,9 @@ for i in range(38,43):
                 if mostVotes < voteNum:
                     winningCandidate = candidate
                     mostVotes = voteNum
-            
+            if winningCandidate == "":
+                print(filePath)
+
             winners[winningCandidate] = sorted(candidateTotals, reverse=True)
 
     writeName = join("../voteData/electionResults/", str(i)+".json")
