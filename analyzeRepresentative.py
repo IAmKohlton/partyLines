@@ -1,12 +1,14 @@
-from tabulate import tabulate
 from typing import List
 import sys
 import json
-import os
-import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+from os.path import join
+from pickle import dump, load
 from scipy.stats import linregress
+from sklearn.linear_model import LinearRegression
+from multiprocessing.dummy import Pool as ThreadPool
+import statsmodels.api as sm
 
 from Vote import Vote
 from Representative import Representative
@@ -47,21 +49,23 @@ def retrieveFromFolder(path: str, country: str) -> List[Representative]:
 #      the second argument should be the file name of the pickle file we want to open and analyze
 #      Note: PICKLE IS NOT SECURE. DO NOT USE A PICKLE FILE CREATED BY ANYTHING BUT THIS PROGRAM.
 
+print("Starting load")
 if __name__ == "__main__":
     if "-s" == sys.argv[1]:
         allReps = retrieveFromFolder(sys.argv[2], sys.argv[3])
         with open(sys.argv[4], "wb") as f:
-            pickle.dump(allReps, f)
+            dump(allReps, f)
         sys.exit(0)
     elif "-o" == sys.argv[1]:
         with open(sys.argv[2], "rb") as f:
-            allReps = pickle.load(f)
+            allReps = load(f)
     else:
         print("must specify what action should be taken:\n\t" +
                 "-s (save raw text to compressed file)\n\t" + 
                 "-o (open data from compressed file and compute)")
         sys.exit(1)
 
+print("Starting analysis")
 
 def representativesByNumberOfRebellions(allReps):
     """ Categorize representatives based on the number of times they've voted against party lines
@@ -69,7 +73,6 @@ def representativesByNumberOfRebellions(allReps):
     """
     repsByNumRebellions = {}
     for rep in allReps:
-        party = allReps[rep].party
         totalVotes = allReps[rep].numVotes
         numRebellions = allReps[rep].numRebellions
 
@@ -78,6 +81,7 @@ def representativesByNumberOfRebellions(allReps):
         repsByNumRebellions[numRebellions].append(rep)
 
     return repsByNumRebellions
+
 
 def repsByNumTimesInGov(allReps):
     """ Categorize representatives based on number of terms they've been in government and take the average rebellion rate of each category
@@ -126,6 +130,8 @@ def rebellionsPerPartyPerSession(allReps):
             if rep.isRebellion(vote):
                 parties[party][year][0] += 1
     return parties
+
+
 
 def rebellionsByTermNumber(allReps):
     """ Analyze behaviour of nth term representatives.
@@ -207,7 +213,79 @@ def rebellionsByTermAndParty(allReps):
 def termPartyAccountForYear(allReps):
     """ Does same thing as rebellionsByTermAndParty() but accounts for the parties voting behaviour at the time
     """
-    return None
+
+    # Dict[party, Dict[session, Dict[term number, (num rebellions, num votes)]]]
+    partyData = {}
+    for repName in allReps:
+        rep = allReps[repName]
+        rep.sessionsInGov.sort()
+        for vote in rep.votes:
+            party = vote[2]
+            if not party in partyData:
+                partyData[party] = {}
+            currentParty = partyData[party]
+            session = vote[0].voteID[0]
+            termNum = rep.sessionsInGov.index(session)
+            if not session in currentParty:
+                currentParty[session] = {}
+            if not termNum in currentParty[session]:
+                currentParty[session][termNum] = [0,0]
+            currentParty[session][termNum][1] += 1
+            if rep.isRebellion(vote):
+                currentParty[session][termNum][0] += 1
+
+  
+    # for every party create a data array and a result vector
+    # where data array is a 2d array where every row is a list of [year, term]
+    # and the corresponding value in result vector is num rebellions / num votes
+    for party in partyData:
+        dataArray = []
+        resultVector = []
+        data = partyData[party]
+        for session in data:
+            for termNum in data[session]:
+                rebelData = data[session][termNum]
+                rebelRate = rebelData[0] / rebelData[1]
+                dataArray.append([session, termNum])
+                resultVector.append(rebelRate)
+        # prediction = LinearRegression().fit(dataArray, resultVector)
+        # print(party, prediction.coef_)
+        X2 = sm.add_constant(dataArray)
+        est = sm.OLS(resultVector, X2)
+        est2 = est.fit()
+        print(est2.summary())
+
+#     partyTerm = {} # dictionary with keys of party and values of (year, term number, total number of votes, total number of rebellions)
+#     for rep in allReps:
+#         rebsInTerm = {} # will be filled with keys of (parliament number, party) values of [number of votes in term, number of rebellions in term]
+#         for vote in allReps[rep].votes:
+#             parliamentNumber = vote[0].voteID[0]
+#             party = vote[2]
+#             if not (parliamentNumber,party) in rebsInTerm:
+#                 rebsInTerm[(parliamentNumber, party)] = [0,0]
+#             rebsInTerm[(parliamentNumber, party)][0] += 1
+#             if allReps[rep].isRebellion(vote):
+#                 rebsInTerm[(parliamentNumber, party)][1] += 1
+# 
+#         # get all parliaments this member has participated in
+#         parliamentToTerm = {}
+#         termNumber = 0
+#         for parNum, party in sorted(rebsInTerm.keys()):
+#             if not parNum in parliamentToTerm:
+#                 parliamentToTerm[parNum] = termNumber
+#                 termNumber += 1
+# 
+#         for parNumber, party in rebsInTerm:
+#             currentTerm = parliamentToTerm[parNumber]
+#             if not (currentTerm, party) in partyTerm:
+#                 partyTerm[(currentTerm, party)] = []
+# 
+#             partyTerm[(currentTerm, party)].append(rebsInTerm[(parNumber, party)])
+
+
+termPartyAccountForYear(allReps)
+sys.exit()
+
 
 def regressWithinParty(termSummary):
     """ Take in termSummary from above method.
@@ -246,8 +324,6 @@ def regressWithinParty(termSummary):
 # for entry in sorted(result.keys()):
 #     data = result[entry]
 #     tableVersion.append([entry[0], entry[1], data[0], data[1], data[2]])
-# tableVersion = sorted(tableVersion, key=lambda x:x[4])
-# print(tabulate(tableVersion))
 
 
 def rebellionsByElectionResult(allReps):
@@ -257,7 +333,7 @@ def rebellionsByElectionResult(allReps):
 
     allElectionResults = {}
     for i in range(38,43):
-        fileName = os.path.join("./voteData/electionResults/", str(i)+".json")
+        fileName = join("./voteData/electionResults/", str(i)+".json")
         # this file contains a dictionary for a particular election
         # the keys of the dict are names of the winners, and values are the number of votes each person got in decreasing order
         # only contains name of elected representative
@@ -280,15 +356,6 @@ def rebellionsByElectionResult(allReps):
     for rep in allReps:
         newKey = " ".join(rep.split()[1:])         
         modifiedAllReps[newKey] = allReps[rep]
-
-    # repSet = set(modifiedAllReps.keys())
-    # electSet = set([x for x,y in electionReps])
-    # print(len(repSet))
-    # print(len(list(repSet-electSet)))
-    # print(sorted(list(repSet-electSet)))
-    # print()
-    # print()
-    # print(sorted(list(electSet-repSet)))
 
     # so there is a reasonable sized problem here
     # I'm getting names from two different locations and kinda hoping that they're the same
@@ -328,3 +395,37 @@ def rebellionsByElectionResult(allReps):
             
 # rebellionsByElectionResult(allReps)
 
+def binarySimilarity(allReps, repName1, repName2):
+    rep1Votes = {}
+    for vote in allReps[repName1]:
+        id = vote[0].voteID
+        rep1Votes[id] = vote
+    rep2Votes = {}
+    for vote in allReps[repName2]:
+        id = vote[0].voteID
+        rep2Votes[id] = vote
+
+    similarVotes = 0
+    dissimilarVotes = 0
+    for vote1 in rep1Votes:
+        if vote1 in rep2Votes:
+            rep1Result = rep1Votes[vote1][1]
+            rep2Result = rep2Votes[vote1][1]
+            if rep1Result == rep2Result:
+                similarVotes += 1
+                dissimilarVotes += 1
+    return (repName1, repName2, similarVotes, dissimilarVotes)
+
+    
+
+def repSimilarity(allReps):
+    repsToAnalyze = []
+    for repName1 in allReps:
+        for repName2 in allReps:
+            if repName1 == repName2:
+                continue
+            repsToAnalyze.append([allReps, repName1, repName2])
+    
+    pool = ThreadPool(16)
+    result = starmap(binarySimilarity, repsToAnalyze)
+    print(result)
