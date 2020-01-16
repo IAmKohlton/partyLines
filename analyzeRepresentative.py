@@ -283,8 +283,8 @@ def termPartyAccountForYear(allReps):
 #             partyTerm[(currentTerm, party)].append(rebsInTerm[(parNumber, party)])
 
 
-termPartyAccountForYear(allReps)
-sys.exit()
+# termPartyAccountForYear(allReps)
+# sys.exit()
 
 
 def regressWithinParty(termSummary):
@@ -396,36 +396,76 @@ def rebellionsByElectionResult(allReps):
 # rebellionsByElectionResult(allReps)
 
 def binarySimilarity(allReps, repName1, repName2):
+    """ takes two representatives names and compares how often they vote similarly
+        Return a tuple with (repName1, repName2, number of votes they voted the same, number of votes they voted differently)
+    """ 
     rep1Votes = {}
-    for vote in allReps[repName1]:
+    for vote in allReps[repName1].votes:
         id = vote[0].voteID
         rep1Votes[id] = vote
     rep2Votes = {}
-    for vote in allReps[repName2]:
+    for vote in allReps[repName2].votes:
         id = vote[0].voteID
         rep2Votes[id] = vote
 
     similarVotes = 0
     dissimilarVotes = 0
+    rep1PermanentParty = ""
+    rep2PermanentParty = ""
+    numSameParty = 0
     for vote1 in rep1Votes:
         if vote1 in rep2Votes:
             rep1Result = rep1Votes[vote1][1]
             rep2Result = rep2Votes[vote1][1]
+            
+            rep1Party = rep1Votes[vote1][2]
+            rep2Party = rep2Votes[vote1][2]
+
+            if rep1PermanentParty == "":
+                rep1PermanentParty = rep1Party
+            elif rep1PermanentParty != rep1Party:
+                rep1PermanentParty = "Changed"
+
+            if rep2PermanentParty == "":
+                rep2PermanentParty = rep2Party
+            elif rep2PermanentParty != rep2Party:
+                rep2PermanentParty = "Changed"
+
+            
+            if rep1Party == rep2Party:
+                numSameParty += 1
+
             if rep1Result == rep2Result:
                 similarVotes += 1
+            else:
                 dissimilarVotes += 1
-    return (repName1, repName2, similarVotes, dissimilarVotes)
-
-    
+    return (repName1, repName2, similarVotes, dissimilarVotes, numSameParty, rep1PermanentParty, rep2PermanentParty)
 
 def repSimilarity(allReps):
+    print(len(allReps))
+    keySet = list(allReps.keys())
+    usedKeys = keySet[:50]
     repsToAnalyze = []
-    for repName1 in allReps:
-        for repName2 in allReps:
+    for repName1 in usedKeys:
+        for repName2 in usedKeys:
             if repName1 == repName2:
                 continue
             repsToAnalyze.append([allReps, repName1, repName2])
     
     pool = ThreadPool(16)
-    result = starmap(binarySimilarity, repsToAnalyze)
-    print(result)
+    result = pool.starmap(binarySimilarity, repsToAnalyze)
+
+    diffPartyResults = []
+    for res in result:
+        rep1Name, rep2Name, similarVotes, dissimilarVotes, numSameParty, rep1Party, rep2Party = res
+        if numSameParty != 0:
+            continue
+        if similarVotes + dissimilarVotes == 0:
+            continue
+        ratioSame = similarVotes / (similarVotes + dissimilarVotes)
+        diffPartyResults.append((ratioSame, similarVotes + dissimilarVotes, rep1Name,rep1Party, rep2Name, rep2Party))
+    sortedDiffParty = sorted(diffPartyResults)
+    for line in sortedDiffParty:
+        print(line)
+
+repSimilarity(allReps)
