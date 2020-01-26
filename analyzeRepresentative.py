@@ -1,4 +1,5 @@
 from typing import List
+from tabulate import tabulate
 import sys
 import json
 import numpy as np
@@ -15,12 +16,6 @@ from Representative import Representative
 from readCanada import readCanada
 from readUS import readUS
 from readSwitzerland import readSwitzerland
-
-try:
-    import xmltodict
-except Exception as e:
-    print("xmltodict not installed, exiting")
-    sys.exit(1)
 
 def retrieveFromFolder(path: str, country: str) -> List[Representative]:
     """ retreive and process all of the relevant xml files.
@@ -255,38 +250,6 @@ def termPartyAccountForYear(allReps):
         est2 = est.fit()
         print(est2.summary())
 
-#     partyTerm = {} # dictionary with keys of party and values of (year, term number, total number of votes, total number of rebellions)
-#     for rep in allReps:
-#         rebsInTerm = {} # will be filled with keys of (parliament number, party) values of [number of votes in term, number of rebellions in term]
-#         for vote in allReps[rep].votes:
-#             parliamentNumber = vote[0].voteID[0]
-#             party = vote[2]
-#             if not (parliamentNumber,party) in rebsInTerm:
-#                 rebsInTerm[(parliamentNumber, party)] = [0,0]
-#             rebsInTerm[(parliamentNumber, party)][0] += 1
-#             if allReps[rep].isRebellion(vote):
-#                 rebsInTerm[(parliamentNumber, party)][1] += 1
-# 
-#         # get all parliaments this member has participated in
-#         parliamentToTerm = {}
-#         termNumber = 0
-#         for parNum, party in sorted(rebsInTerm.keys()):
-#             if not parNum in parliamentToTerm:
-#                 parliamentToTerm[parNum] = termNumber
-#                 termNumber += 1
-# 
-#         for parNumber, party in rebsInTerm:
-#             currentTerm = parliamentToTerm[parNumber]
-#             if not (currentTerm, party) in partyTerm:
-#                 partyTerm[(currentTerm, party)] = []
-# 
-#             partyTerm[(currentTerm, party)].append(rebsInTerm[(parNumber, party)])
-
-
-# termPartyAccountForYear(allReps)
-# sys.exit()
-
-
 def regressWithinParty(termSummary):
     """ Take in termSummary from above method.
         Check if the number of terms a representative is in parliament for affects the amount they rebel
@@ -399,10 +362,12 @@ def binarySimilarity(allReps, repName1, repName2):
     """ takes two representatives names and compares how often they vote similarly
         Return a tuple with (repName1, repName2, number of votes they voted the same, number of votes they voted differently)
     """ 
+    # create dictionary of representative votes so we can have constant time access
     rep1Votes = {}
     for vote in allReps[repName1].votes:
         id = vote[0].voteID
         rep1Votes[id] = vote
+
     rep2Votes = {}
     for vote in allReps[repName2].votes:
         id = vote[0].voteID
@@ -442,7 +407,6 @@ def binarySimilarity(allReps, repName1, repName2):
     return (repName1, repName2, similarVotes, dissimilarVotes, numSameParty, rep1PermanentParty, rep2PermanentParty)
 
 def repSimilarity(allReps):
-    print(len(allReps))
     keySet = list(allReps.keys())
     usedKeys = keySet[:50]
     repsToAnalyze = []
@@ -468,4 +432,58 @@ def repSimilarity(allReps):
     for line in sortedDiffParty:
         print(line)
 
-repSimilarity(allReps)
+# repSimilarity(allReps)
+
+# TODO: this function but make it robust enough to deal with people who switch parties
+def similarityToParty(allReps):
+    """ Compares how similarly representatives vote compared to the party at large.
+        Notes when the most similar party to a representative is not their own party
+    """
+    returnDict = {}
+    for repName in allReps:
+        rep = allReps[repName]
+
+        repParty = ""
+
+        parties = {} # contain key of party name, and 2-list of [# similar votes, # different votes]
+        for voteObject in rep.votes:
+            vote = voteObject[0]
+            repVote = voteObject[1]
+            partyForThisVote = voteObject[2]
+
+            if repParty == "":
+                repParty = partyForThisVote
+            elif repParty != partyForThisVote:
+                repParty = "Changed"
+
+            for party in vote.voteResult:
+                if not party in parties:
+                    parties[party] = [0,0]
+                partyVotedYes = 1 if vote.voteResult[party][0] > vote.voteResult[party][1] else 0
+                if repVote == partyVotedYes:
+                    parties[party][0] += 1
+                else:
+                    parties[party][1] += 1
+
+        similarityScore = {}
+        for party in parties:
+            totalVotes = parties[party][0] + parties[party][1]
+            similarityScore[party] = parties[party][0] / totalVotes
+        
+        closestParty = ""
+        closestPartyScore = 0
+        for party in similarityScore:
+            if similarityScore[party] > closestPartyScore:
+                closestParty = party
+                closestPartyScore = similarityScore[party]
+
+        if repParty != "Changed":
+            if closestParty != repParty:
+                returnDict[repName] = [rep.name, repParty, similarityScore[repParty], closestParty, similarityScore[closestParty]]
+
+    return returnDict
+
+similarity = similarityToParty(allReps)
+simList = [similarity[key] for key in similarity]
+simList = sorted(simList, key=lambda list: abs(list[2]-list[4]), reverse=True)
+print(tabulate(simList))
