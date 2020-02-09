@@ -444,9 +444,86 @@ def partySize(voteData):
 
     return linregress(sizeToRebRatio)
     
+def regressOnClosenessOfSession(voteData):
+    allParliaments = {} # Dict[parliament #, List[margin of victory / number of voters]]
+    for vote in voteData:
+        parNumber = vote["Parliament"]
+        numYea = 0
+        numNay = 0
+        for party in vote:
+            if party == "Parliament":
+                continue
+            numYea += vote[party][1]
+            numNay += vote[party][0]
+        marginOfVictory = abs(numYea - numNay)
+        numVotes = numYea + numNay
+        if numVotes != 0:
+            if not parNumber in allParliaments:
+                allParliaments[parNumber] = []
+            allParliaments[parNumber].append(marginOfVictory / numVotes)
+
+    parliamentAverages = {}
+    for par in allParliaments:
+        total = 0
+        marginList = allParliaments[par]
+        for margin in marginList:
+            total += margin
+        averageMargin = total / len(marginList)
+        parliamentAverages[par] = averageMargin
+
+    # Now get the rate of rebellions in those terms, and the expected rate of rebellions in those terms
+    parlRebellions = {} # Dict[parliament #, List[# rebellions / # voters]]
+    for vote in voteData:
+        parlNum = vote["Parliament"]
+        numVotes = 0
+        numReb = 0
+        for party in vote:
+            if party == "Parliament":
+                continue
+            numVotes += vote[party][0] + vote[party][1]
+            numReb += min(vote[party][0], vote[party][1])
+        
+        if numVotes != 0:
+            if not parlNum in parlRebellions:
+                parlRebellions[parlNum] = []
+            parlRebellions[parlNum].append(numReb / numVotes)
+
+    rebAverages = {} # Dict[parliament #, average rebellions in term]
+    for par in parlRebellions:
+        total = 0
+        marginList = parlRebellions[par]
+        for margin in marginList:
+            total += margin
+        averageMargin = total / len(marginList)
+        rebAverages[par] = averageMargin
+
+    # now get the expected number of rebellions in that term
+    regress = regressOnRebPerParliament(voteData)
+    slope, intercept = regress[0], regress[1]
+    # when the regression was done it normalized the intercept to be the first parliament
+    minParliament = min(rebAverages.keys())
+
+    closeness = []
+    adjustedRebellions = []
+    for parl in rebAverages:
+        newParNum = parl-minParliament
+        adjustedRate = intercept + newParNum * slope
+        adjustedRebellions.append(rebAverages[parl]*100 - adjustedRate)
+        
+        closeness.append(parliamentAverages[parl])
+
+
+    newRegress = linregress(closeness, adjustedRebellions)
+    plt.plot(closeness, adjustedRebellions, "o")
+    plt.plot(closeness, newRegress[1]+newRegress[0]*np.array(closeness), "r")
+    plt.show()
+    return newRegress
+
+
+            
 
 def analyzeVote(voteData):
-    return partySize(voteData)
+    return regressOnClosenessOfSession(voteData)
 
 def analyzeVotes(paths):
     data = {}
