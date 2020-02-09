@@ -483,7 +483,92 @@ def similarityToParty(allReps):
 
     return returnDict
 
-similarity = similarityToParty(allReps)
-simList = [similarity[key] for key in similarity]
-simList = sorted(simList, key=lambda list: abs(list[2]-list[4]), reverse=True)
-print(tabulate(simList))
+# similarity = similarityToParty(allReps)
+# simList = [similarity[key] for key in similarity]
+# simList = sorted(simList, key=lambda list: abs(list[2]-list[4]), reverse=True)
+# print(tabulate(simList))
+
+def getVoteList(allReps):
+    allVotes = {}
+    for repName in allReps:
+        for vote in allReps[repName].votes:
+            voteID = vote[0].voteID
+            voteOb = vote[0]
+            if not voteID in allVotes:
+                allVotes[voteID] = voteOb
+    return allVotes
+
+def provinceDefect(allReps):
+    allVotes = getVoteList(allReps)
+
+    # classify representatives by province
+    provinces = {} # Dict[prov, Dict[repName, repObject]]
+    for repName in allReps:
+        rep = allReps[repName]
+        if not rep.province in provinces:
+            provinces[rep.province] = {}
+        provinces[rep.province][repName] = rep
+
+    # from here we compare exptected province cohesion against actual province cohesion
+    # for every vote we calculate what the majority of the party voted for to get an expected result for the provincial representatives. 
+    # from this we calculate expected provincial cohesion
+    # we then calculate actual provincial cohesion and see if it's higher
+
+    # start with calculating vote cohesion
+    cohesion = {} # Dict[voteId, Dict[party, cohesion]]
+    for vote in allVotes:
+        cohesion[vote.voteID] = {}
+        result = vote.voteResult
+        for party in result:
+            votedYea = result[party][0] > result[party][1]
+            cohesion[vote.voteID][party] = votedYea
+
+    # now we get every representative that participated in a vote from a particular province
+    allData = {} # Dict[province, List[(expected cohesion, actual cohesion)]]
+    for voteID in allVotes:
+        vote = allVotes[voteID]
+        for prov in provinces:
+            if not prov in allData:
+                allData[prov] = []
+
+            repsInProvince = {} # Dict[repName, vote (the kind stored in rep.votes)]
+            for repName in provinces[prov]:
+                rep = provinces[prov][repName]
+
+                # check if the represntative voted in this vote
+                repVote = None
+                for vote in rep.votes:
+                    currentVoteID = vote[0].voteID
+                    if currentVoteID == voteID:
+                        repVote = vote
+                        break
+                if repVote != None:
+                    repsInProvince[repName, vote]
+
+            # calculate the expected cohesion
+            expectedYea = 0
+            expectedNay = 0
+            for repName in provinces[prov]:
+                currentParty = repsInProvince[repName][2]
+                partyVotedYea = cohesion[voteID][currentParty]
+                if partyVotedYea:
+                    expectedYea += 1
+                else:
+                    expectedNay += 1
+            expectedProvinceCohesion = max(expectedYea, expectedNay) / (expectedYea + expectedNay)
+            
+            # now calculate actual cohesion
+            actualYea = 0
+            actualNay = 0
+            for repName in provinces[prov]:
+                repVote = repsInProvince[repName]
+                if repVote[1] == 1:
+                    actualYea += 1
+                else:
+                    actualNay += 1
+
+            actualProvinceCohesion = max(actualYea, actualNay) / (actualYea + actualNay)
+
+            allData[prov].append((expectedProvinceCohesion, actualProvinceCohesion))
+    return allData
+

@@ -192,7 +192,6 @@ def binomialMSE(prunedData, p, i):
         totalSquareError += (actual - simulated) ** 2
 
     return totalSquareError
-
     
 
 def fitBinomial(voteData):
@@ -413,8 +412,41 @@ def savePartyParliamentToFile(path, saveFile):
             f.write(",".join(line)+"\n")
 
 
+def partySize(voteData):
+    # organize votes by parliament number
+    parliamentPartyRebellion = {} # Dict[parl#: Dict[party: (votes, rebellions, # of votes)]]
+    for vote in voteData:
+        parl = vote["Parliament"]
+        if not parl in parliamentPartyRebellion:
+            parliamentPartyRebellion[parl] = {}
+        for party in vote:
+            if party == "Parliament":
+                continue
+            if not party in parliamentPartyRebellion[parl]:
+                parliamentPartyRebellion[parl][party] = [0,0,0]
+            numReps = vote[party][0] + vote[party][1]
+            numRebellions = min(vote[party][0], vote[party][1])
+            parliamentPartyRebellion[parl][party][0] += numReps
+            parliamentPartyRebellion[parl][party][1] += numRebellions
+            parliamentPartyRebellion[parl][party][2] += 1
+
+    sizeToRebRatio = []
+    for parl in parliamentPartyRebellion:
+        for party in parliamentPartyRebellion[parl]:
+            totalRepVotes, rebellions, numVotes = parliamentPartyRebellion[parl][party]
+            if totalRepVotes == 0 or numVotes == 0:
+                print(parl, party)
+                continue
+
+            numberOfReps = totalRepVotes / numVotes
+            rebellionPercentage = rebellions / totalRepVotes
+            sizeToRebRatio.append((numberOfReps, rebellionPercentage))
+
+    return linregress(sizeToRebRatio)
+    
+
 def analyzeVote(voteData):
-    return rebPerPartyAndParliament(voteData)
+    return partySize(voteData)
 
 def analyzeVotes(paths):
     data = {}
@@ -430,9 +462,9 @@ def analyzeVotes(paths):
 
 
 if __name__ == "__main__":
-    savePartyParliamentToFile("./voteData/canadaVotes.json", "./canadaOverTime.csv")
-    savePartyParliamentToFile("./voteData/houseVotes.json", "./usOverTime.csv")
-    savePartyParliamentToFile("./voteData/swissVotes.json", "./swissOverTime.csv")
+    # savePartyParliamentToFile("./voteData/canadaVotes.json", "./canadaOverTime.csv")
+    # savePartyParliamentToFile("./voteData/houseVotes.json", "./usOverTime.csv")
+    # savePartyParliamentToFile("./voteData/swissVotes.json", "./swissOverTime.csv")
 
     # analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json"})
     analysis = analyzeVotes({"canada" : "./voteData/canadaVotes.json", "US" : "./voteData/houseVotes.json", "switzerland" : "./voteData/swissVotes.json"})
